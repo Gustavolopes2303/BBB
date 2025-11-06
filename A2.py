@@ -14,6 +14,10 @@ st.set_page_config(
 # --- 2. TABELAS DE IMPOSTOS (Mantidas) ---
 
 def get_inss_aliquota_e_deducao(salario_base):
+    """
+    Calcula o INSS com base na tabela progressiva.
+    Faixa: (teto da faixa, alíquota, dedução)
+    """
     # Tabela INSS Progressiva (exemplo com valores de 2025)
     faixas = [
         (1518.00, 0.075, 0.00),
@@ -22,13 +26,19 @@ def get_inss_aliquota_e_deducao(salario_base):
         (8157.41, 0.14, 190.40)
     ]
     if salario_base <= 0: return 0.0
+    
     base_calculo = min(salario_base, faixas[-1][0])
     
-    for teto, aliquota, deducao in reversed(faixas):
-        if base_calculo > teto:
+    # Percorre as faixas (do menor para o maior teto) para encontrar a alíquota e dedução corretas
+    for teto, aliquota, deducao in faixas:
+        if base_calculo <= teto:
+            # Aplica a fórmula: (Base x Alíquota) - Parcela a Deduzir
             return (base_calculo * aliquota) - deducao
-    
-    return base_calculo * faixas[0][1]
+            
+    # Caso a base seja superior ao Teto (8157.41), aplica o valor máximo (Teto x Alíquota Máxima - Dedução)
+    aliquota_teto = faixas[-1][1]
+    deducao_teto = faixas[-1][2]
+    return (faixas[-1][0] * aliquota_teto) - deducao_teto
 
 
 def get_irrf_aliquota_e_deducao(base_ir):
@@ -338,4 +348,4 @@ if st.button("Calcular Verbas Rescisórias Detalhadas", type="primary"):
         }))
         
     st.markdown("---")
-    st.info("⚠️ **Atenção:** Os cálculos são uma simulação baseada na CLT e leis correlatas. O valor final pode variar devido a Convenções Coletivas e decisões judiciais. Consulte sempre um profissional.")
+    st.info("⚠️ **Atenção:** Os cálculos são uma simulação baseada na CLT e leis correlatas. O valor final pode variar devido a Convenções Coletivas e decisões judiciais. Consulte sempre um profissional.") um profissional.")
