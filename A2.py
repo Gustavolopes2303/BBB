@@ -78,16 +78,16 @@ def calcular_meses_proporcionais(admissao, demissao, faltas_prop):
     Calcula os meses proporcionais para 13º e Férias (regra dos 15 dias - Lei 4.090/62).
     """
     if demissao <= admissao:
-        return 0
+        return 0, 0
         
     # Calcula os meses brutos (regra dos 15 dias)
     diferenca = relativedelta(demissao.replace(day=1), admissao.replace(day=1))
-    total_meses = diferenca.years * 12 + diferenca.months + 1 
+    total_meses = diferenca.years * 12 + diferenca.months + 1
 
     # Ajusta se o dia da demissão for < 15
     if demissao.day < 15 and diferenca.months > 0:
-         total_meses -= 1
-         
+          total_meses -= 1
+          
     # O 13º proporcional (Lei 4.090/62) não é reduzido pelas faltas.
     # A redução de Férias Proporcionais é aplicada no cálculo da verba (dias_ferias_prop_devidos).
     
@@ -112,7 +112,7 @@ def calcular_ferias_vencidas(salario_base, ferias_vencidas_completas, ferias_ven
         valor_terco_dobro = valor_terco_simples * 2 
         valor_total_dobro = (valor_base_dobro + valor_terco_dobro) * ferias_vencidas_dobro
         valor_vencidas_total += valor_total_dobro
-            
+        
     return valor_vencidas_total
 
 
@@ -140,7 +140,7 @@ def calcular_saldo_salario(salario_base, dias_trabalhados_no_mes):
 
 # --- 4. INTERFACE STREAMLIT ---
 
-st.title("⚖️ Calculadora de Rescisão Trabalhista (v2.1)")
+st.title("⚖️ Calculadora de Rescisão Trabalhista (v2.1 Corrigida)")
 st.markdown("### Inclui Férias Vencidas, Faltas e Cálculo de Impostos")
 st.caption("Simulação para Demissão **Sem Justa Causa** (Iniciativa do Empregador) - **Referências CLT**.")
 
@@ -204,6 +204,7 @@ if st.button("Calcular Verbas Rescisórias Detalhadas", type="primary"):
     dias_ferias_prop_devidos = calcular_dias_ferias(faltas_proporcionais)
     
     # Base de cálculo proporcional em 1/12 avos
+    # Formula: (Valor de um mês reduzido por faltas) / 12 * Meses proporcionais (+ 1/3)
     valor_ferias_prop_base = (salario_base / 30 * dias_ferias_prop_devidos / 12) * meses_ferias_prop
     valor_terco_prop = valor_ferias_prop_base / 3
     valor_ferias_prop_total = valor_ferias_prop_base + valor_terco_prop
@@ -217,18 +218,26 @@ if st.button("Calcular Verbas Rescisórias Detalhadas", type="primary"):
     # Multa FGTS (Lei 8.036/90)
     valor_multa_fgts = saldo_fgts_base * 0.40
     
-    # 5.2. TOTAL BRUTO E DESCONTOS
+    # 5.2. TOTAL BRUTO E DESCONTOS (LÓGICA CORRIGIDA)
     
-    # Verbas Tributáveis para INSS/IRRF: SS + AP + 13º. Férias e Multa FGTS são isentas (Lei 7.713/88).
-    base_tributavel = valor_saldo_salario + valor_ap
-    
-    inss_principal = get_inss_aliquota_e_deducao(base_tributavel)
+    # Aviso Prévio: Isolar o valor correspondente aos 30 dias (base) e o adicional proporcional (Lei 12.506/11).
+    # O AP (30 dias) é tributável para INSS e isento de IRRF (jurisprudência). O AP Adicional é isento de INSS e IRRF.
+    valor_ap_30_dias = salario_base
+    # Proteção para garantir que o valor adicional não seja negativo (embora não deva ser)
+    valor_ap_adicional = max(0, valor_ap - valor_ap_30_dias)
+
+    # Base de cálculo INSS (Principal: SS + AP 30 dias). AP Adicional é isento de INSS.
+    base_inss_principal = valor_saldo_salario + valor_ap_30_dias
+
+    # 1. CÁLCULO INSS (Principal e 13º)
+    inss_principal = get_inss_aliquota_e_deducao(base_inss_principal)
     inss_13 = get_inss_aliquota_e_deducao(valor_13_proporcional)
-    
-    base_irrf = base_tributavel - inss_principal
-    irrf_principal = get_irrf_aliquota_e_deducao(base_irrf)
-    
-    total_descontos = inss_principal + irrf_principal + inss_13 
+
+    # Base de cálculo IRRF (Principal: SS apenas, após dedução do INSS. AP Indenizado é isento de IRRF por Súmula 386 STJ).
+    base_irrf_principal = valor_saldo_salario - inss_principal
+    irrf_principal = get_irrf_aliquota_e_deducao(base_irrf_principal)
+
+    total_descontos = inss_principal + irrf_principal + inss_13
     
     # Total Bruto (Pagamento Direto)
     verbas_brutas_diretas = valor_saldo_salario + valor_ap + valor_13_proporcional + valor_ferias_prop_total + valor_ferias_vencidas_total
@@ -261,13 +270,13 @@ if st.button("Calcular Verbas Rescisórias Detalhadas", type="primary"):
     df_verbas = pd.DataFrame({
         'Verba': ['Saldo de Salário', '13º Salário Prop. (Avos)', f'Férias Prop. (+1/3 - {dias_ferias_prop_devidos} dias)', 'Férias Vencidas (+1/3)', 'Aviso Prévio', 'Multa FGTS (40%)'],
         'Valor Bruto (R$)': [valor_saldo_salario, valor_13_proporcional, valor_ferias_prop_total, valor_ferias_vencidas_total, valor_ap, valor_multa_fgts],
-        'Natureza': ['Tributável (CLT, Art. 462)', 'Tributável (Lei 4.090/62)', 'Isenta (CLT, Art. 146)', 'Isenta (CLT, Art. 137)', 'Tributável (CLT, Art. 487)', 'Isenta (Lei 8.036/90)']
+        'Natureza': ['Tributável (INSS/IRRF)', 'Tributável (INSS/IRRF Separado)', 'Isenta (IRRF/INSS)', 'Isenta (IRRF/INSS)', 'INSS (30 dias) / IRRF (Isento)', 'Isenta (IRRF/INSS)']
     })
     
     df_descontos = pd.DataFrame({
-        'Desconto': ['INSS (Total)', 'IRRF (Principal)'],
-        'Valor (R$)': [inss_principal + inss_13, irrf_principal],
-        'Base': ['SS, AP e 13º', 'SS e AP (Após INSS)']
+        'Desconto': [f'INSS Principal (Base R$ {base_inss_principal:,.2f})', f'INSS 13º (Base R$ {valor_13_proporcional:,.2f})', f'IRRF Principal (Base R$ {base_irrf_principal:,.2f})'],
+        'Valor (R$)': [inss_principal, inss_13, irrf_principal],
+        'Base': ['SS e AP (30 dias)', '13º Salário Prop.', 'SS (após INSS)']
     })
 
     col_tabela, col_grafico = st.columns([1.5, 1])
@@ -323,7 +332,7 @@ if st.button("Calcular Verbas Rescisórias Detalhadas", type="primary"):
         
         st.markdown("**5. Aviso Prévio Indenizado (AP):**")
         st.latex(r"Dias \: AP = 30 \: dias \: + \: (3 \: dias \: \times \: Anos \: Completos \: de \: Serviço) \quad (\text{máx. } 90 \: dias)")
-        st.caption("Referência Legal: **CLT Art. 487** (30 dias) e **Lei 12.506/11** (Proporcionalidade por ano).")
+        st.caption("Referência Legal: **CLT Art. 487** (30 dias) e **Lei 12.506/11** (Proporcionalidade por ano). **ATENÇÃO:** O valor total é Isento de IRRF por Súmula 386 STJ, e o INSS incide apenas sobre os 30 dias básicos.")
         
         st.markdown("**6. Multa FGTS:**")
         st.latex(r"Multa \: FGTS = Saldo \: FGTS \times 40\%")
